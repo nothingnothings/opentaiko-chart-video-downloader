@@ -19,13 +19,19 @@ a background video, and for each selected song:
 
 Requirements
 ------------
-* Python 3.9+ with tkinter (standard Windows Python includes it).
-* yt-dlp    - https://github.com/yt-dlp/yt-dlp/releases  (yt-dlp.exe)
+* Python 3.9+ with tkinter (standard Windows Python includes it; on Linux /
+  Steam Deck install the `tk` package).
+* yt-dlp    - https://github.com/yt-dlp/yt-dlp/releases
+              Windows: yt-dlp.exe
+              Linux/Steam Deck: yt-dlp_linux (chmod +x) or `pip install yt-dlp`
 * ffmpeg    - https://www.gyan.dev/ffmpeg/builds/  or  `winget install ffmpeg`
+              Linux/Steam Deck: `sudo pacman -S ffmpeg`
 
 Both tools are auto-detected from (in order): the settings fields in the GUI,
 the folder containing this script, then PATH. yt-dlp installed via
-`pip install yt-dlp` is also detected.
+`pip install yt-dlp` is also detected. Each candidate is probe-tested with
+`--version`, so a Windows `yt-dlp.exe` next to the script cannot shadow a
+working Linux installation.
 
 Command line:
     python opentaiko_video_downloader.py                # start the GUI
@@ -73,7 +79,15 @@ MAX_RES_CHOICES = (
     ("2160p (4K)", 2160),
 )
 
-CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+IS_WINDOWS = os.name == "nt"
+CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
+
+# A Windows .exe cannot be executed on Linux/Steam Deck, so only look for the
+# POSIX names there. yt-dlp's official Linux standalone releases use these
+# filenames.
+YTDLP_LOCAL_NAMES = (("yt-dlp.exe", "yt-dlp") if IS_WINDOWS else
+                     ("yt-dlp", "yt-dlp_linux", "yt-dlp_linux_aarch64"))
+FFMPEG_LOCAL_NAMES = (("ffmpeg.exe", "ffmpeg") if IS_WINDOWS else ("ffmpeg",))
 
 # Header lines: KEY : value   (OpenTaiko splits on the first ASCII ':')
 HDR_RE = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$")
@@ -369,44 +383,81 @@ def scan_library(songs_dir: Path, progress=None) -> list:
 class Tool:
     cmd: list | None
     where: str
+    note: str = ""
 
     def ok(self) -> bool:
         return bool(self.cmd)
 
 
+def _probe_tool(cmd: list, probe_arg: str, timeout: float = 10) -> tuple[bool, str]:
+    """Actually start a candidate so an incompatible tool can't shadow a
+    working fallback (e.g. a copied yt-dlp.exe on Linux/Steam Deck)."""
+    try:
+        p = subprocess.run(
+            cmd + [probe_arg], capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+            creationflags=CREATE_NO_WINDOW, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    if p.returncode == 0:
+        return True, ""
+    detail = (p.stderr or p.stdout or "").strip().splitlines()
+    return False, f"exit {p.returncode}" + (
+        f": {detail[-1][:120]}" if detail else "")
+
+
+def _resolve_tool(candidates, probe_arg: str, not_found: str) -> Tool:
+    failures = []
+    for cmd, where in candidates:
+        exe = Path(cmd[0])
+        if not IS_WINDOWS and len(cmd) == 1 and not os.access(exe, os.X_OK):
+            failures.append(f"{where}: {exe.name} is not executable (chmod +x?)")
+            continue
+        ok, err = _probe_tool(cmd, probe_arg)
+        if ok:
+            return Tool(cmd, where)
+        failures.append(f"{where}: {err}")
+    return Tool(None, "not found",
+                "; ".join(failures) if failures else not_found)
+
+
 def resolve_ytdlp(cfg_path: str) -> Tool:
+    candidates = []
     if cfg_path:
-        p = Path(cfg_path)
+        p = Path(cfg_path).expanduser()
         if p.is_file():
-            return Tool([str(p)], "settings")
-    for name in ("yt-dlp.exe", "yt-dlp"):
+            candidates.append(([str(p)], "settings"))
+    for name in YTDLP_LOCAL_NAMES:
         p = SCRIPT_DIR / name
         if p.is_file():
-            return Tool([str(p)], "next to script")
-    w = shutil.which("yt-dlp")
-    if w:
-        return Tool([w], "PATH")
+            candidates.append(([str(p)], "next to script"))
+    for name in ("yt-dlp", "yt-dlp_linux"):
+        w = shutil.which(name)
+        if w and all(w != cmd[0] for cmd, _ in candidates):
+            candidates.append(([w], "PATH"))
     try:
         if importlib.util.find_spec("yt_dlp"):
-            return Tool([sys.executable, "-m", "yt_dlp"], "python -m yt_dlp")
+            candidates.append(
+                ([sys.executable, "-m", "yt_dlp"], "python -m yt_dlp"))
     except Exception:
         pass
-    return Tool(None, "not found")
+    return _resolve_tool(candidates, "--version", "yt-dlp is not installed")
 
 
 def resolve_ffmpeg(cfg_path: str) -> Tool:
+    candidates = []
     if cfg_path:
-        p = Path(cfg_path)
+        p = Path(cfg_path).expanduser()
         if p.is_file():
-            return Tool([str(p)], "settings")
-    for name in ("ffmpeg.exe", "ffmpeg"):
+            candidates.append(([str(p)], "settings"))
+    for name in FFMPEG_LOCAL_NAMES:
         p = SCRIPT_DIR / name
         if p.is_file():
-            return Tool([str(p)], "next to script")
+            candidates.append(([str(p)], "next to script"))
     w = shutil.which("ffmpeg")
-    if w:
-        return Tool([w], "PATH")
-    return Tool(None, "not found")
+    if w and all(w != cmd[0] for cmd, _ in candidates):
+        candidates.append(([w], "PATH"))
+    return _resolve_tool(candidates, "-version", "ffmpeg is not installed")
 
 
 def build_search_cmd(tool: Tool, query: str, count: int) -> list:
@@ -834,7 +885,7 @@ class App:
         self._build_style()
         self._build_ui()
 
-        self._resolve_tools(log=False)
+        self._resolve_tools(log=True)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         root.after(80, self._pump)
         root.after(60, self.start_scan)
@@ -1067,6 +1118,10 @@ class App:
                 f"({self.tool_ytdlp.where}), "
                 f"ffmpeg={self.tool_ffmpeg.cmd} "
                 f"({self.tool_ffmpeg.where})", "dim")
+            for name, tool in (("yt-dlp", self.tool_ytdlp),
+                               ("ffmpeg", self.tool_ffmpeg)):
+                if not tool.ok() and tool.note:
+                    self.log(f"  {name}: {tool.note}", "warn")
 
     def _browse_songs(self):
         d = filedialog.askdirectory(title="Select the OpenTaiko Songs folder")
@@ -1077,9 +1132,13 @@ class App:
             self.start_scan()
 
     def _browse_tool(self, which: str):
+        if IS_WINDOWS:
+            patterns = (("Executable", "*.exe"), ("All files", "*.*"))
+        else:
+            patterns = (("Executable", "*"), ("All files", "*"))
         f = filedialog.askopenfilename(
             title=f"Select the {which} executable",
-            filetypes=(("Executable", "*.exe"), ("All files", "*.*")))
+            initialdir=str(SCRIPT_DIR), filetypes=patterns)
         if f:
             if which == "yt-dlp":
                 self.ytdlp_var.set(f)
@@ -1338,16 +1397,35 @@ class App:
         if not sel:
             return
         if not self.tool_ytdlp.ok():
+            if IS_WINDOWS:
+                hint = ("Download yt-dlp.exe from "
+                        "https://github.com/yt-dlp/yt-dlp/releases and place "
+                        "it next to this script (or on PATH).")
+            else:
+                hint = ("Install it with `sudo pacman -S yt-dlp` or "
+                        "`python -m pip install --user -U yt-dlp`, or place "
+                        "the Linux binary `yt-dlp_linux` next to this script "
+                        "and run `chmod +x yt-dlp_linux`. The Windows "
+                        "`yt-dlp.exe` cannot run on Linux.")
+            detail = f"\n\nDetails: {self.tool_ytdlp.note}" \
+                if self.tool_ytdlp.note else ""
             messagebox.showerror(
-                APP_TITLE, "yt-dlp was not found.\n\nDownload yt-dlp.exe from "
-                "https://github.com/yt-dlp/yt-dlp/releases and place it next "
-                "to this script (or on PATH), or set its location above.")
+                APP_TITLE, f"yt-dlp was not found or could not run.\n\n{hint}"
+                + detail)
             return
         if not self.tool_ffmpeg.ok():
+            if IS_WINDOWS:
+                hint = ("Install ffmpeg and put it on PATH (or next to this "
+                        "script), or set its location above.")
+            else:
+                hint = ("Install it with `sudo pacman -S ffmpeg`, or put a "
+                        "Linux ffmpeg binary on PATH / next to this script "
+                        "and make sure it is executable.")
+            detail = f"\n\nDetails: {self.tool_ffmpeg.note}" \
+                if self.tool_ffmpeg.note else ""
             messagebox.showerror(
-                APP_TITLE, "ffmpeg was not found.\n\nInstall ffmpeg and put "
-                "it on PATH (or next to this script), or set its location "
-                "above.")
+                APP_TITLE, f"ffmpeg was not found or could not run.\n\n{hint}"
+                + detail)
             return
         self.stop_event.clear()
         auto = bool(self.auto_pick_var.get())
@@ -1614,6 +1692,16 @@ def self_test() -> int:
         print(f"[{status}] {name}" + (f" — {extra}" if extra else ""))
         if not cond:
             failures.append(name)
+
+    expected_names = (("yt-dlp.exe", "yt-dlp") if IS_WINDOWS else
+                      ("yt-dlp", "yt-dlp_linux", "yt-dlp_linux_aarch64"))
+    check("platform-aware local tool names",
+          YTDLP_LOCAL_NAMES == expected_names, str(YTDLP_LOCAL_NAMES))
+    probe_ok, _ = _probe_tool([sys.executable, "-c", "pass"], "--version")
+    probe_bad, _ = _probe_tool(
+        [sys.executable, "-c", "raise SystemExit(3)"], "--version")
+    check("tool probe accepts a working command", probe_ok)
+    check("tool probe rejects a failing command", not probe_bad)
 
     tools_y = resolve_ytdlp("")
     tools_f = resolve_ffmpeg("")

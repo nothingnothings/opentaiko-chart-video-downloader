@@ -24,14 +24,35 @@ OpenTaiko then plays the video behind the notes during gameplay
 
 | Tool | Where | Notes |
 |------|-------|-------|
-| Python 3.9+ with tkinter | [python.org](https://www.python.org/downloads/) | Standard Windows installer includes tkinter |
-| **yt-dlp** | [github.com/yt-dlp/yt-dlp/releases](https://github.com/yt-dlp/yt-dlp/releases) → `yt-dlp.exe` | Auto-detected: next to this script → PATH → `pip install yt-dlp` |
-| **ffmpeg** | [gyan.dev/ffmpeg/builds](https://www.gyan.dev/ffmpeg/builds/) or `winget install ffmpeg` | Auto-detected: next to this script → PATH |
+| Python 3.9+ with tkinter | [python.org](https://www.python.org/downloads/) | Windows installer includes tkinter; Linux/Steam Deck: `sudo pacman -S python tk` |
+| **yt-dlp** | [github.com/yt-dlp/yt-dlp/releases](https://github.com/yt-dlp/yt-dlp/releases) → `yt-dlp.exe` (Windows) / `yt-dlp_linux` (Linux) | Auto-detected: settings → next to this script → PATH → `python -m yt_dlp` |
+| **ffmpeg** | [gyan.dev/ffmpeg/builds](https://www.gyan.dev/ffmpeg/builds/) or `winget install ffmpeg`; Linux: `sudo pacman -S ffmpeg` | Auto-detected: settings → next to this script → PATH |
 
 Both tools can also be set manually in the GUI (the `…` browse buttons).
 
 > **Tip:** `yt-dlp.exe` is already provided next to the script in this
-> workspace. Keep it updated occasionally: `yt-dlp -U` (or re-download).
+> workspace, but it is a **Windows-only** binary. Keep it updated occasionally:
+> `yt-dlp -U` (or re-download).
+
+### Steam Deck / Linux
+
+Work in **Desktop Mode**. The bundled `.exe` cannot run there; install the
+native tools instead:
+
+```
+sudo pacman -S python tk ffmpeg yt-dlp
+```
+
+If pacman reports a read-only filesystem, run `sudo steamos-readonly disable`
+first (and re-enable it afterwards). Use `python3` instead of `python` if your
+system doesn't provide the `python` alias.
+
+Then run `python opentaiko_video_downloader.py`. The app finds `yt-dlp` and
+`ffmpeg` on `PATH` automatically. Alternatively, download `yt-dlp_linux` from
+the releases page, place it next to the script and run `chmod +x yt-dlp_linux`.
+The Windows `yt-dlp.exe` can stay in the folder — it is ignored on Linux.
+Each candidate is checked with `--version`/`-version` at startup, and any
+rejection reason is printed in the log panel.
 
 ---
 
@@ -107,15 +128,20 @@ Notes:
 
 ## Troubleshooting
 
+* **`yt-dlp.exe` fails on Linux / Steam Deck** — that file is a Windows
+  executable. Install native `yt-dlp` (`sudo pacman -S yt-dlp` or pip), or use
+  `yt-dlp_linux` with `chmod +x`, as described above.
 * **"Sign in to confirm you're not a bot"** / age-restricted videos —
-  YouTube throttling. Adding cookies to a `yt-dlp.conf` next to `yt-dlp.exe`
-  (`--cookies-from-browser firefox` or `--cookies browser.txt`) usually fixes
-  it; the script doesn't override your yt-dlp configuration.
+  YouTube throttling. Adding cookies usually fixes it: a `yt-dlp.conf` next to
+  `yt-dlp.exe` on Windows, or `~/.config/yt-dlp/config` on Linux
+  (`--cookies-from-browser firefox` or `--cookies browser.txt`). The script
+  doesn't override your yt-dlp configuration.
 * **Missing JavaScript runtime error from yt-dlp** — install
   [Deno](https://deno.com) or Node.js (yt-dlp uses one of them to solve
   YouTube's JS challenges).
 * **Search works but download fails** — check the log; it contains yt-dlp's
-  full output. Stale yt-dlp versions are the usual cause → `yt-dlp -U`.
+  full output. Stale yt-dlp versions are the usual cause → `yt-dlp -U` or
+  `python -m pip install -U yt-dlp`.
 * **Video doesn't show in game** — make sure BGMOVIE display is enabled in
   OpenTaiko (Settings → System → BGMOVIE) and the file is in the chart's
   folder (it is named in the `.tja`, visible in the *Video* column).

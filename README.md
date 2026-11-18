@@ -34,16 +34,53 @@ OpenTaiko then plays the video behind the notes during gameplay
 
 ### 1. Install Python
 - Windows: download and install [Python 3.9+](https://www.python.org/downloads/).
-- During installation, check **"Add Python to PATH"** and make sure **tcl/tk**
+  During installation, check **"Add Python to PATH"** and make sure **tcl/tk**
   (tkinter) is included — the standard Windows installer includes it by default.
+- Steam Deck / Linux: open **Desktop Mode** and install Python plus Tk:
+  ```
+  sudo pacman -S python tk
+  ```
 
 Verify:
 ```
 python --version
 ```
 
+### Steam Deck / Linux quick setup
+
+The bundled `yt-dlp.exe` is a Windows program and **cannot run on Linux**.
+In Desktop Mode, install the Linux versions of the two tools instead:
+
+```
+sudo pacman -S python tk ffmpeg yt-dlp
+```
+
+If pacman reports a read-only filesystem, run `sudo steamos-readonly disable`
+first (and `sudo steamos-readonly enable` afterwards). If `python` isn't found,
+use `python3` in the commands below.
+
+That is usually all you need — the downloader detects `yt-dlp` on `PATH` and
+uses it automatically. If you prefer a standalone binary, download
+`yt-dlp_linux` from [the releases page](https://github.com/yt-dlp/yt-dlp/releases),
+put it next to `opentaiko_video_downloader.py`, and make it executable:
+
+```
+chmod +x yt-dlp_linux
+```
+
+You can leave `yt-dlp.exe` in the folder; the app ignores it on Linux. To run
+the GUI:
+
+```
+cd /path/to/taiko-vid-downloader
+python opentaiko_video_downloader.py
+```
+
 ### 2. Install ffmpeg
 ffmpeg performs the actual download and muxing into MP4.
+
+**Steam Deck / Linux:** `sudo pacman -S ffmpeg` (included in the quick setup
+above).
 
 **Option A — winget (recommended on Windows):**
 ```
@@ -63,7 +100,12 @@ ffmpeg -version
 ### 3. Install yt-dlp
 yt-dlp resolves YouTube video URLs and picks the right streams.
 
-**Option A — standalone executable (included here):**
+**Steam Deck / Linux:** `sudo pacman -S yt-dlp` or
+`python -m pip install --user -U yt-dlp` (see quick setup above). On Linux the
+app ignores `yt-dlp.exe` and looks for `yt-dlp`, `yt-dlp_linux`,
+`yt-dlp_linux_aarch64`, then `python -m yt_dlp`.
+
+**Option A — standalone executable (included here, Windows only):**
 - A copy of `yt-dlp.exe` is already placed next to this script in the
   repository. The tool auto-detects it from the script's folder, so nothing
   else is needed. Keep it updated occasionally:
@@ -85,10 +127,11 @@ pip install yt-dlp
 
 ### 4. Get the script
 - `opentaiko_video_downloader.py` — the downloader GUI.
-- `yt-dlp.exe` — already included in this workspace.
+- `yt-dlp.exe` — already included in this workspace (Windows only).
 
-No installer is needed; just keep both files together and run the script with
-Python.
+No installer is needed. On Windows, keep the `.exe` next to the script. On
+Linux/Steam Deck, install the Linux tools as described above and run the script
+with Python.
 
 ## Quick start
 
@@ -153,13 +196,19 @@ Both yt-dlp and ffmpeg are located automatically, in this order:
 3. Your system PATH.
 4. For yt-dlp only: `python -m yt_dlp` (if installed via pip).
 
+Every candidate is probe-tested (`yt-dlp --version` / `ffmpeg -version`) before
+it is used. On Linux, Windows `.exe` files are skipped entirely, so a copied
+`yt-dlp.exe` can't block a working Linux install. If nothing works, the log
+panel shows why each candidate was rejected.
+
 ## Troubleshooting
 
 | Problem | Likely cause / fix |
 |---------|--------------------|
-| **"Sign in to confirm you're not a bot"** / age-restricted video | YouTube throttling. Add cookies to a `yt-dlp.conf` next to `yt-dlp.exe` (`--cookies-from-browser firefox` or `--cookies browser.txt`). |
+| **`yt-dlp.exe` says "cannot execute binary file" on Steam Deck/Linux** | Expected — it's a Windows executable. Install the Linux tool (`sudo pacman -S yt-dlp`, or `yt-dlp_linux` + `chmod +x`) as described above. |
+| **"Sign in to confirm you're not a bot"** / age-restricted video | YouTube throttling. Add cookies: on Windows a `yt-dlp.conf` next to `yt-dlp.exe`; on Linux `~/.config/yt-dlp/config` (`--cookies-from-browser firefox` or `--cookies browser.txt`). |
 | **Missing JavaScript runtime error from yt-dlp** | Install [Deno](https://deno.com/) or Node.js — yt-dlp uses one to solve YouTube's JS challenges. |
-| **Download fails but search works** | Stale yt-dlp version is the usual cause → `yt-dlp -U`. The full yt-dlp output is shown in the log panel. |
+| **Download fails but search works** | Stale yt-dlp version is the usual cause → `yt-dlp -U` (standalone) or `python -m pip install -U yt-dlp` (pip). The full yt-dlp output is shown in the log panel. |
 | **Video doesn't show in game** | Make sure BGMOVIE is enabled in OpenTaiko (**Settings → System → BGMOVIE**) and the `.mp4` sits in the chart's folder. |
 | **Window freezes during a download** | Should be fixed in the current build — progress output is throttled so the UI stays responsive. If it happens again, close the app and re-run. |
 
@@ -167,9 +216,9 @@ Both yt-dlp and ffmpeg are located automatically, in this order:
 
 | Tool | Required | Notes |
 |------|----------|-------|
-| Python 3.9+ + tkinter | Yes | Standard Windows installer includes tkinter |
-| ffmpeg | Yes | Downloads and muxes the MP4 (H.264 + AAC) |
-| yt-dlp | Yes | Resolves YouTube stream URLs |
+| Python 3.9+ + tkinter | Yes | Windows installer includes tkinter; Linux: `sudo pacman -S python tk` |
+| ffmpeg | Yes | Downloads and muxes the MP4 (H.264 + AAC); Linux: `sudo pacman -S ffmpeg` |
+| yt-dlp | Yes | Resolves YouTube stream URLs; Linux: `pacman -S yt-dlp`, pip, or `yt-dlp_linux` |
 
 ## License
 
